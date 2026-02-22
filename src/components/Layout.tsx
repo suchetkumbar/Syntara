@@ -23,7 +23,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10">
             <Beaker className="w-4.5 h-4.5 text-primary" />
           </div>
-          <span className="font-display text-lg font-bold tracking-tight">PromptLab</span>
+          <span className="font-display text-lg font-bold tracking-tight">Syntara</span>
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1">
           {navItems.map((item) => {
