@@ -1,6 +1,6 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Beaker, Sparkles, Blocks, Library, GitCompare, Menu, X, LogOut, Sun, Moon } from "lucide-react";
+import { Beaker, Sparkles, Blocks, Library, GitCompare, BookTemplate, BarChart3, Menu, X, LogOut, Sun, Moon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
@@ -11,6 +11,8 @@ const navItems = [
   { to: "/builder", icon: Blocks, label: "Builder" },
   { to: "/library", icon: Library, label: "Library" },
   { to: "/compare", icon: GitCompare, label: "Compare" },
+  { to: "/templates", icon: BookTemplate, label: "Templates" },
+  { to: "/dashboard", icon: BarChart3, label: "Dashboard" },
 ];
 
 const pageTransition = {

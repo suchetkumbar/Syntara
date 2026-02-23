@@ -2,14 +2,17 @@ import { useState, useEffect } from "react";
 import Layout from "@/components/Layout";
 import ScoreDisplay from "@/components/ScoreDisplay";
 import TokenEstimate from "@/components/TokenEstimate";
+import PromptDebugPanel from "@/components/PromptDebugPanel";
+import ModelOptimizer from "@/components/ModelOptimizer";
 import { generateOptimizedPrompt, STRATEGY_META, PromptStrategy } from "@/utils/promptGenerator";
 import { scorePrompt } from "@/utils/promptScorer";
+import { debugPrompt } from "@/services/placeholder/promptDebugger";
 import { usePrompts } from "@/hooks/usePrompts";
 import { PromptScore } from "@/types/prompt";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Sparkles, Copy, Save, Wand2, BarChart3, Brain, MessagesSquare, BookOpen, Terminal } from "lucide-react";
+import { Sparkles, Copy, Save, Wand2, BarChart3, Brain, BookOpen, Terminal, Bug, Cpu } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 
@@ -26,6 +29,8 @@ export default function Index() {
   const [output, setOutput] = useState("");
   const [score, setScore] = useState<PromptScore | null>(null);
   const [strategy, setStrategy] = useState<PromptStrategy>("standard");
+  const [debugIssues, setDebugIssues] = useState<ReturnType<typeof debugPrompt> | null>(null);
+  const [showOptimizer, setShowOptimizer] = useState(false);
   const { addPrompt } = usePrompts();
 
   // Keyboard shortcut: Ctrl+Enter to generate/optimize
@@ -46,32 +51,31 @@ export default function Index() {
   });
 
   const handleGenerate = () => {
-    if (!input.trim()) {
-      toast.error("Please enter a prompt idea first");
-      return;
-    }
+    if (!input.trim()) { toast.error("Please enter a prompt idea first"); return; }
     const result = generateOptimizedPrompt(input, strategy);
     setOutput(result);
     setScore(null);
+    setDebugIssues(null);
   };
 
   const handleImprove = () => {
-    if (!input.trim()) {
-      toast.error("Please enter a prompt to improve");
-      return;
-    }
+    if (!input.trim()) { toast.error("Please enter a prompt to improve"); return; }
     const result = generateOptimizedPrompt(input, strategy);
     setOutput(result);
     setScore(null);
+    setDebugIssues(null);
   };
 
   const handleScore = () => {
     const textToScore = output || input;
-    if (!textToScore.trim()) {
-      toast.error("Nothing to score yet");
-      return;
-    }
+    if (!textToScore.trim()) { toast.error("Nothing to score yet"); return; }
     setScore(scorePrompt(textToScore));
+  };
+
+  const handleDebug = () => {
+    const textToDebug = output || input;
+    if (!textToDebug.trim()) { toast.error("Nothing to debug yet"); return; }
+    setDebugIssues(debugPrompt(textToDebug));
   };
 
   const handleCopy = () => {
@@ -94,7 +98,7 @@ export default function Index() {
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ type: "spring", stiffness: 300, damping: 24 }}
+          transition={{ type: "spring" as const, stiffness: 300, damping: 24 }}
         >
           <h1 className="text-2xl sm:text-3xl font-display font-bold tracking-tight">
             Prompt <span className="text-gradient-primary">Generator</span>
@@ -119,7 +123,7 @@ export default function Index() {
                 <motion.div
                   layoutId="mode-tab"
                   className="absolute inset-0 bg-primary/10 rounded-md"
-                  transition={{ type: "spring", stiffness: 350, damping: 30 }}
+                  transition={{ type: "spring" as const, stiffness: 350, damping: 30 }}
                 />
               )}
               <span className={`relative z-10 ${mode === m ? "text-primary" : "text-muted-foreground"}`}>
@@ -130,11 +134,7 @@ export default function Index() {
         </div>
 
         {/* Strategy selector */}
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-        >
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2.5 block">
             Strategy
           </label>
@@ -156,7 +156,7 @@ export default function Index() {
                     <motion.div
                       layoutId="strategy-active"
                       className="absolute inset-0 border-2 border-primary/30 rounded-lg"
-                      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                      transition={{ type: "spring" as const, stiffness: 400, damping: 25 }}
                     />
                   )}
                   <Icon className="w-4 h-4 relative z-10" />
@@ -215,14 +215,14 @@ export default function Index() {
               initial={{ opacity: 0, y: 16, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -8, scale: 0.98 }}
-              transition={{ type: "spring", stiffness: 300, damping: 24 }}
+              transition={{ type: "spring" as const, stiffness: 300, damping: 24 }}
               className="surface-elevated rounded-lg p-4 space-y-3"
             >
               <div className="flex items-center justify-between">
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   Result
                 </label>
-                <div className="flex gap-1.5">
+                <div className="flex gap-1.5 flex-wrap">
                   <motion.div whileTap={{ scale: 0.9 }}>
                     <Button size="sm" variant="ghost" onClick={handleCopy} className="gap-1.5 h-7 text-xs">
                       <Copy className="w-3 h-3" /> Copy
@@ -238,12 +238,63 @@ export default function Index() {
                       <BarChart3 className="w-3 h-3" /> Score
                     </Button>
                   </motion.div>
+                  <motion.div whileTap={{ scale: 0.9 }}>
+                    <Button size="sm" variant="ghost" onClick={handleDebug} className="gap-1.5 h-7 text-xs">
+                      <Bug className="w-3 h-3" /> Debug
+                    </Button>
+                  </motion.div>
+                  <motion.div whileTap={{ scale: 0.9 }}>
+                    <Button size="sm" variant="ghost" onClick={() => setShowOptimizer(!showOptimizer)} className="gap-1.5 h-7 text-xs">
+                      <Cpu className="w-3 h-3" /> Model
+                    </Button>
+                  </motion.div>
                 </div>
               </div>
               <pre className="text-sm font-mono whitespace-pre-wrap bg-background rounded-md p-3 border border-border max-h-80 overflow-y-auto">
                 {output}
               </pre>
               <TokenEstimate text={output} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Model Optimizer Panel */}
+        <AnimatePresence>
+          {showOptimizer && output && (
+            <motion.div
+              key="optimizer"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ type: "spring" as const, stiffness: 350, damping: 25 }}
+              className="surface-elevated rounded-lg p-4"
+            >
+              <ModelOptimizer
+                prompt={output}
+                onApply={(optimized) => {
+                  setOutput(optimized);
+                  setScore(null);
+                  setDebugIssues(null);
+                  setShowOptimizer(false);
+                  toast.success("Model-optimized prompt applied");
+                }}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Debug panel */}
+        <AnimatePresence>
+          {debugIssues && (
+            <motion.div
+              key="debug"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ type: "spring" as const, stiffness: 350, damping: 25 }}
+              className="surface-elevated rounded-lg p-4"
+            >
+              <PromptDebugPanel issues={debugIssues} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -256,7 +307,7 @@ export default function Index() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              transition={{ type: "spring", stiffness: 350, damping: 25 }}
+              transition={{ type: "spring" as const, stiffness: 350, damping: 25 }}
               className="surface-elevated rounded-lg p-4"
             >
               <ScoreDisplay score={score} />
