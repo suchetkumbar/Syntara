@@ -1,8 +1,10 @@
 import { ReactNode, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { Beaker, Sparkles, Blocks, Library, GitCompare, Menu, X } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Beaker, Sparkles, Blocks, Library, GitCompare, Menu, X, LogOut, Sun, Moon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAuth } from "@/contexts/AuthContext";
+import { useTheme } from "@/hooks/useTheme";
 
 const navItems = [
   { to: "/", icon: Sparkles, label: "Generator" },
@@ -26,7 +28,24 @@ const pageSpring = {
 
 export default function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { user, logout } = useAuth();
+  const { theme, toggle } = useTheme();
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
+
+  const initials = user?.name
+    ? user.name
+      .split(" ")
+      .map((w) => w[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2)
+    : "?";
 
   return (
     <div className="flex h-screen bg-background">
@@ -69,8 +88,50 @@ export default function Layout({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-        <div className="px-4 py-4 border-t border-border">
-          <p className="text-xs text-muted-foreground font-mono">v0.1.0 — MVP</p>
+
+        {/* Sidebar footer — user + controls */}
+        <div className="px-3 py-3 border-t border-border space-y-2">
+          <div className="flex items-center gap-2 px-2">
+            <button
+              onClick={toggle}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            >
+              <AnimatePresence mode="wait" initial={false}>
+                {theme === "dark" ? (
+                  <motion.div key="sun" initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: 90, opacity: 0 }} transition={{ duration: 0.15 }}>
+                    <Sun className="w-4 h-4" />
+                  </motion.div>
+                ) : (
+                  <motion.div key="moon" initial={{ rotate: 90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: -90, opacity: 0 }} transition={{ duration: 0.15 }}>
+                    <Moon className="w-4 h-4" />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </button>
+            <div className="flex-1" />
+            <p className="text-[10px] text-muted-foreground font-mono">v0.2.0</p>
+          </div>
+
+          {user && (
+            <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-muted/50">
+              <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary/15 text-primary text-xs font-bold shrink-0">
+                {initials}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium truncate">{user.name}</p>
+                <p className="text-[10px] text-muted-foreground truncate">{user.email}</p>
+              </div>
+              <motion.button
+                onClick={handleLogout}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                whileTap={{ scale: 0.9 }}
+                title="Sign out"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </motion.button>
+            </div>
+          )}
         </div>
       </aside>
 
@@ -81,23 +142,28 @@ export default function Layout({ children }: { children: ReactNode }) {
             <Beaker className="w-5 h-5 text-primary" />
             <span className="font-display text-lg font-bold">Syntara</span>
           </div>
-          <motion.button
-            onClick={() => setMobileOpen(!mobileOpen)}
-            className="text-muted-foreground"
-            whileTap={{ scale: 0.9 }}
-          >
-            <AnimatePresence mode="wait" initial={false}>
-              {mobileOpen ? (
-                <motion.div key="close" initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: 90, opacity: 0 }} transition={{ duration: 0.15 }}>
-                  <X className="w-5 h-5" />
-                </motion.div>
-              ) : (
-                <motion.div key="menu" initial={{ rotate: 90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: -90, opacity: 0 }} transition={{ duration: 0.15 }}>
-                  <Menu className="w-5 h-5" />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.button>
+          <div className="flex items-center gap-1">
+            <button onClick={toggle} className="p-2 text-muted-foreground">
+              {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+            <motion.button
+              onClick={() => setMobileOpen(!mobileOpen)}
+              className="text-muted-foreground p-2"
+              whileTap={{ scale: 0.9 }}
+            >
+              <AnimatePresence mode="wait" initial={false}>
+                {mobileOpen ? (
+                  <motion.div key="close" initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: 90, opacity: 0 }} transition={{ duration: 0.15 }}>
+                    <X className="w-5 h-5" />
+                  </motion.div>
+                ) : (
+                  <motion.div key="menu" initial={{ rotate: 90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: -90, opacity: 0 }} transition={{ duration: 0.15 }}>
+                    <Menu className="w-5 h-5" />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.button>
+          </div>
         </header>
 
         <AnimatePresence>
@@ -133,6 +199,21 @@ export default function Layout({ children }: { children: ReactNode }) {
                     </motion.div>
                   );
                 })}
+                {user && (
+                  <motion.div
+                    initial={{ opacity: 0, x: -12 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.2 }}
+                  >
+                    <button
+                      onClick={handleLogout}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-destructive/80 hover:bg-destructive/10 w-full transition-all"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Sign Out
+                    </button>
+                  </motion.div>
+                )}
               </div>
             </motion.nav>
           )}

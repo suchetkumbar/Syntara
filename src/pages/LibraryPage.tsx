@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Search, Trash2, Clock, FolderOpen } from "lucide-react";
+import { Search, Trash2, Clock, FolderOpen, Download, Upload, FileDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 
@@ -33,7 +33,7 @@ const cardVariants = {
 };
 
 export default function LibraryPage() {
-  const { prompts, deletePrompt, updatePrompt } = usePrompts();
+  const { prompts, deletePrompt, updatePrompt, addPrompt } = usePrompts();
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Prompt | null>(null);
   const [editContent, setEditContent] = useState("");
@@ -56,6 +56,63 @@ export default function LibraryPage() {
     setSelected(null);
   };
 
+  // Export all prompts as JSON
+  const handleExportAll = () => {
+    if (prompts.length === 0) {
+      toast.error("No prompts to export");
+      return;
+    }
+    const data = JSON.stringify(prompts, null, 2);
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `syntara-prompts-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${prompts.length} prompts`);
+  };
+
+  // Export single prompt as Markdown
+  const handleExportMarkdown = (p: Prompt) => {
+    const md = `# ${p.title}\n\n${p.content}\n\n---\n*Tags: ${p.tags.join(", ") || "none"}*\n*Created: ${new Date(p.createdAt).toLocaleString()}*\n`;
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${p.title.replace(/\s+/g, "-").toLowerCase()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Exported as Markdown");
+  };
+
+  // Import prompts from JSON
+  const handleImport = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json";
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        if (!Array.isArray(data)) throw new Error("Invalid format");
+        let count = 0;
+        for (const p of data) {
+          if (p.title && p.content) {
+            addPrompt(p.title, p.content, p.tags || []);
+            count++;
+          }
+        }
+        toast.success(`Imported ${count} prompts`);
+      } catch {
+        toast.error("Invalid file format — expected Syntara JSON export");
+      }
+    };
+    input.click();
+  };
+
   return (
     <Layout>
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
@@ -63,14 +120,28 @@ export default function LibraryPage() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: "spring", stiffness: 300, damping: 24 }}
-          className="mb-8"
+          className="mb-6 flex items-start justify-between"
         >
-          <h1 className="text-2xl sm:text-3xl font-display font-bold tracking-tight">
-            Prompt <span className="text-gradient-primary">Library</span>
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {prompts.length} prompt{prompts.length !== 1 ? "s" : ""} saved
-          </p>
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-display font-bold tracking-tight">
+              Prompt <span className="text-gradient-primary">Library</span>
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              {prompts.length} prompt{prompts.length !== 1 ? "s" : ""} saved
+            </p>
+          </div>
+          <div className="flex gap-1.5">
+            <motion.div whileTap={{ scale: 0.95 }}>
+              <Button variant="ghost" size="sm" onClick={handleExportAll} className="gap-1.5 text-xs">
+                <Download className="w-3.5 h-3.5" /> Export
+              </Button>
+            </motion.div>
+            <motion.div whileTap={{ scale: 0.95 }}>
+              <Button variant="ghost" size="sm" onClick={handleImport} className="gap-1.5 text-xs">
+                <Upload className="w-3.5 h-3.5" /> Import
+              </Button>
+            </motion.div>
+          </div>
         </motion.div>
 
         <motion.div
@@ -152,6 +223,16 @@ export default function LibraryPage() {
                   />
                   <div className="flex gap-2">
                     <Button onClick={handleUpdate} className="flex-1">Save New Version</Button>
+                    <motion.div whileTap={{ scale: 0.9 }}>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => handleExportMarkdown(selected)}
+                        title="Export as Markdown"
+                      >
+                        <FileDown className="w-4 h-4" />
+                      </Button>
+                    </motion.div>
                     <Button
                       variant="destructive"
                       size="icon"

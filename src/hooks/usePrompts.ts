@@ -1,19 +1,35 @@
 import { useState, useEffect, useCallback } from "react";
 import { Prompt, PromptVersion } from "@/types/prompt";
 import { scorePrompt } from "@/utils/promptScorer";
+import { useAuth } from "@/contexts/AuthContext";
 
-const STORAGE_KEY = "syntara_prompts";
 const LEGACY_KEY = "promptlab_prompts";
+const GLOBAL_KEY = "syntara_prompts";
 
-function loadPrompts(): Prompt[] {
+function getStorageKey(userId: string | undefined): string {
+  return userId ? `syntara_user_${userId}_prompts` : GLOBAL_KEY;
+}
+
+function loadPrompts(userId: string | undefined): Prompt[] {
   try {
-    // Migrate from legacy key if needed
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const key = getStorageKey(userId);
+    const raw = localStorage.getItem(key);
     if (raw) return JSON.parse(raw);
 
+    // Migrate from legacy/global keys for first-time user
+    if (userId) {
+      const globalRaw = localStorage.getItem(GLOBAL_KEY);
+      if (globalRaw) {
+        localStorage.setItem(key, globalRaw);
+        return JSON.parse(globalRaw);
+      }
+    }
+
+    // Legacy migration (promptlab → syntara)
     const legacy = localStorage.getItem(LEGACY_KEY);
     if (legacy) {
-      localStorage.setItem(STORAGE_KEY, legacy);
+      const targetKey = getStorageKey(userId);
+      localStorage.setItem(targetKey, legacy);
       localStorage.removeItem(LEGACY_KEY);
       return JSON.parse(legacy);
     }
@@ -24,16 +40,23 @@ function loadPrompts(): Prompt[] {
   }
 }
 
-function savePrompts(prompts: Prompt[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(prompts));
+function savePrompts(userId: string | undefined, prompts: Prompt[]) {
+  localStorage.setItem(getStorageKey(userId), JSON.stringify(prompts));
 }
 
 export function usePrompts() {
-  const [prompts, setPrompts] = useState<Prompt[]>(loadPrompts);
+  const { user } = useAuth();
+  const userId = user?.id;
+  const [prompts, setPrompts] = useState<Prompt[]>(() => loadPrompts(userId));
+
+  // Reload prompts when user changes
+  useEffect(() => {
+    setPrompts(loadPrompts(userId));
+  }, [userId]);
 
   useEffect(() => {
-    savePrompts(prompts);
-  }, [prompts]);
+    savePrompts(userId, prompts);
+  }, [prompts, userId]);
 
   const addPrompt = useCallback((title: string, content: string, tags: string[] = []) => {
     const now = new Date().toISOString();

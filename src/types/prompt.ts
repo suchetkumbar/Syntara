@@ -33,7 +33,6 @@ export interface ScoreBreakdown {
 
 export interface BuilderBlock {
   id: string;
-  type: "role" | "task" | "context" | "constraints" | "outputFormat" | "example";
   label: string;
   content: string;
   enabled: boolean;
@@ -44,5 +43,7 @@ export interface Experiment {
   name: string;
   promptA: string;
   promptB: string;
+  scoreA?: PromptScore;
+  scoreB?: PromptScore;
   createdAt: string;
 }
