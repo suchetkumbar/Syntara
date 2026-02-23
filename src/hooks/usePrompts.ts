@@ -2,12 +2,23 @@ import { useState, useEffect, useCallback } from "react";
 import { Prompt, PromptVersion } from "@/types/prompt";
 import { scorePrompt } from "@/utils/promptScorer";
 
-const STORAGE_KEY = "promptlab_prompts";
+const STORAGE_KEY = "syntara_prompts";
+const LEGACY_KEY = "promptlab_prompts";
 
 function loadPrompts(): Prompt[] {
   try {
+    // Migrate from legacy key if needed
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (raw) return JSON.parse(raw);
+
+    const legacy = localStorage.getItem(LEGACY_KEY);
+    if (legacy) {
+      localStorage.setItem(STORAGE_KEY, legacy);
+      localStorage.removeItem(LEGACY_KEY);
+      return JSON.parse(legacy);
+    }
+
+    return [];
   } catch {
     return [];
   }
