@@ -1,52 +1,9 @@
-import { v4Style } from "./idUtils";
-
-export interface User {
-    id: string;
-    name: string;
-    email: string;
-    passwordHash: string;
-    createdAt: string;
-}
+import { supabase } from "@/lib/supabase";
 
 export interface AuthSession {
     userId: string;
     email: string;
     name: string;
-    token: string;
-    expiresAt: string;
-}
-
-const USERS_KEY = "syntara_users";
-const SESSION_KEY = "syntara_session";
-
-// Simple hash using Web Crypto (SHA-256)
-async function hashPassword(password: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password);
-    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-function getUsers(): User[] {
-    try {
-        const raw = localStorage.getItem(USERS_KEY);
-        return raw ? JSON.parse(raw) : [];
-    } catch {
-        return [];
-    }
-}
-
-function saveUsers(users: User[]) {
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
-
-function generateId(): string {
-    return v4Style();
-}
-
-function generateToken(): string {
-    return `${generateId()}-${Date.now()}`;
 }
 
 export const authService = {
@@ -55,89 +12,72 @@ export const authService = {
         email: string,
         password: string
     ): Promise<AuthSession> {
-        const users = getUsers();
-        const existing = users.find(
-            (u) => u.email.toLowerCase() === email.toLowerCase()
-        );
-        if (existing) {
-            throw new Error("An account with this email already exists");
-        }
-
-        const passwordHash = await hashPassword(password);
-        const user: User = {
-            id: generateId(),
-            name: name.trim(),
+        const { data, error } = await supabase.auth.signUp({
             email: email.toLowerCase().trim(),
-            passwordHash,
-            createdAt: new Date().toISOString(),
+            password,
+            options: {
+                data: { name: name.trim() },
+            },
+        });
+
+        if (error) throw new Error(error.message);
+        if (!data.user) throw new Error("Registration failed — no user returned");
+
+        return {
+            userId: data.user.id,
+            email: data.user.email || email,
+            name: name.trim(),
         };
-
-        users.push(user);
-        saveUsers(users);
-
-        const session = createSession(user);
-        saveSession(session);
-        return session;
     },
 
     async login(email: string, password: string): Promise<AuthSession> {
-        const users = getUsers();
-        const user = users.find(
-            (u) => u.email.toLowerCase() === email.toLowerCase().trim()
-        );
-        if (!user) {
-            throw new Error("Invalid email or password");
-        }
+        const { data, error } = await supabase.auth.signInWithPassword({
+            email: email.toLowerCase().trim(),
+            password,
+        });
 
-        const passwordHash = await hashPassword(password);
-        if (user.passwordHash !== passwordHash) {
-            throw new Error("Invalid email or password");
-        }
+        if (error) throw new Error(error.message);
+        if (!data.user) throw new Error("Login failed — no user returned");
 
-        const session = createSession(user);
-        saveSession(session);
-        return session;
+        // Fetch name from profile
+        const { data: profile } = await supabase
+            .from("profiles")
+            .select("name")
+            .eq("id", data.user.id)
+            .single();
+
+        return {
+            userId: data.user.id,
+            email: data.user.email || email,
+            name: profile?.name || data.user.user_metadata?.name || "",
+        };
     },
 
-    logout() {
-        localStorage.removeItem(SESSION_KEY);
+    async logout(): Promise<void> {
+        const { error } = await supabase.auth.signOut();
+        if (error) throw new Error(error.message);
     },
 
-    getSession(): AuthSession | null {
-        try {
-            const raw = localStorage.getItem(SESSION_KEY);
-            if (!raw) return null;
-            const session: AuthSession = JSON.parse(raw);
-            // Check expiry (7 days)
-            if (new Date(session.expiresAt) < new Date()) {
-                localStorage.removeItem(SESSION_KEY);
-                return null;
-            }
-            return session;
-        } catch {
-            return null;
-        }
+    async getSession(): Promise<AuthSession | null> {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return null;
+
+        const { data: profile } = await supabase
+            .from("profiles")
+            .select("name")
+            .eq("id", session.user.id)
+            .single();
+
+        return {
+            userId: session.user.id,
+            email: session.user.email || "",
+            name: profile?.name || session.user.user_metadata?.name || "",
+        };
     },
 
-    getCurrentUser(): { id: string; name: string; email: string } | null {
-        const session = this.getSession();
+    async getCurrentUser(): Promise<{ id: string; name: string; email: string } | null> {
+        const session = await this.getSession();
         if (!session) return null;
         return { id: session.userId, name: session.name, email: session.email };
     },
 };
-
-function createSession(user: User): AuthSession {
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
-    return {
-        userId: user.id,
-        email: user.email,
-        name: user.name,
-        token: generateToken(),
-        expiresAt: expiresAt.toISOString(),
-    };
-}
-
-function saveSession(session: AuthSession) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-}

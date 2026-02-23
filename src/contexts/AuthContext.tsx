@@ -6,6 +6,7 @@ import {
     useCallback,
     ReactNode,
 } from "react";
+import { supabase } from "@/lib/supabase";
 import { authService, AuthSession } from "@/services/authService";
 
 interface AuthContextType {
@@ -23,13 +24,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<AuthContextType["user"]>(null);
     const [isLoading, setIsLoading] = useState(true);
 
-    // Check for existing session on mount
+    // Listen for Supabase auth state changes
     useEffect(() => {
-        const currentUser = authService.getCurrentUser();
-        if (currentUser) {
-            setUser(currentUser);
-        }
-        setIsLoading(false);
+        // Check initial session
+        authService.getCurrentUser().then((currentUser) => {
+            if (currentUser) {
+                setUser(currentUser);
+            }
+            setIsLoading(false);
+        });
+
+        // Subscribe to auth changes (login, logout, token refresh)
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+            async (event, session) => {
+                if (event === "SIGNED_OUT" || !session) {
+                    setUser(null);
+                } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+                    const { data: profile } = await supabase
+                        .from("profiles")
+                        .select("name")
+                        .eq("id", session.user.id)
+                        .single();
+
+                    setUser({
+                        id: session.user.id,
+                        name: profile?.name || session.user.user_metadata?.name || "",
+                        email: session.user.email || "",
+                    });
+                }
+            }
+        );
+
+        return () => subscription.unsubscribe();
     }, []);
 
     const login = useCallback(async (email: string, password: string) => {
@@ -49,8 +75,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         []
     );
 
-    const logout = useCallback(() => {
-        authService.logout();
+    const logout = useCallback(async () => {
+        await authService.logout();
         setUser(null);
     }, []);
 

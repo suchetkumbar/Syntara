@@ -1,8 +1,9 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import Layout from "@/components/Layout";
 import ScoreDisplay from "@/components/ScoreDisplay";
 import { scorePrompt } from "@/utils/promptScorer";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,25 +15,8 @@ import { Experiment } from "@/types/prompt";
 const fadeSlideUp = {
   initial: { opacity: 0, y: 16 },
   animate: { opacity: 1, y: 0 },
-  transition: { type: "spring", stiffness: 300, damping: 24 },
+  transition: { type: "spring" as const, stiffness: 300, damping: 24 },
 };
-
-function getExperimentsKey(userId: string | undefined) {
-  return userId ? `syntara_user_${userId}_experiments` : "syntara_experiments";
-}
-
-function loadExperiments(userId: string | undefined): Experiment[] {
-  try {
-    const raw = localStorage.getItem(getExperimentsKey(userId));
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveExperiments(userId: string | undefined, experiments: Experiment[]) {
-  localStorage.setItem(getExperimentsKey(userId), JSON.stringify(experiments));
-}
 
 export default function Compare() {
   const { user } = useAuth();
@@ -40,8 +24,33 @@ export default function Compare() {
   const [promptB, setPromptB] = useState("");
   const [scored, setScored] = useState(false);
   const [experimentName, setExperimentName] = useState("");
-  const [experiments, setExperiments] = useState<Experiment[]>(() => loadExperiments(user?.id));
+  const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+
+  // Load experiments from Supabase
+  useEffect(() => {
+    if (!user?.id) return;
+    supabase
+      .from("experiments")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .then(({ data }) => {
+        if (data) {
+          setExperiments(
+            data.map((row: any) => ({
+              id: row.id,
+              name: row.name,
+              promptA: row.prompt_a,
+              promptB: row.prompt_b,
+              scoreA: row.score_a || undefined,
+              scoreB: row.score_b || undefined,
+              createdAt: row.created_at,
+            }))
+          );
+        }
+      });
+  }, [user?.id]);
 
   const scoreA = useMemo(() => (scored && promptA ? scorePrompt(promptA) : null), [scored, promptA]);
   const scoreB = useMemo(() => (scored && promptB ? scorePrompt(promptB) : null), [scored, promptB]);
@@ -50,26 +59,46 @@ export default function Compare() {
     ? scoreA.total > scoreB.total ? "A" : scoreB.total > scoreA.total ? "B" : "tie"
     : null;
 
-  const handleSaveExperiment = useCallback(() => {
+  const handleSaveExperiment = useCallback(async () => {
     if (!promptA.trim() || !promptB.trim()) {
       toast.error("Both prompts are required");
       return;
     }
+    if (!user?.id) return;
+
+    const name = experimentName.trim() || `Experiment ${experiments.length + 1}`;
+
+    const { data: row, error } = await supabase
+      .from("experiments")
+      .insert({
+        user_id: user.id,
+        name,
+        prompt_a: promptA,
+        prompt_b: promptB,
+        score_a: scoreA || null,
+        score_b: scoreB || null,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      toast.error("Failed to save experiment");
+      return;
+    }
+
     const exp: Experiment = {
-      id: crypto.randomUUID(),
-      name: experimentName.trim() || `Experiment ${experiments.length + 1}`,
+      id: row.id,
+      name,
       promptA,
       promptB,
       scoreA: scoreA || undefined,
       scoreB: scoreB || undefined,
-      createdAt: new Date().toISOString(),
+      createdAt: row.created_at,
     };
-    const updated = [exp, ...experiments];
-    setExperiments(updated);
-    saveExperiments(user?.id, updated);
+    setExperiments((prev) => [exp, ...prev]);
     setExperimentName("");
     toast.success("Experiment saved");
-  }, [promptA, promptB, scoreA, scoreB, experimentName, experiments, user?.id]);
+  }, [promptA, promptB, scoreA, scoreB, experimentName, experiments.length, user?.id]);
 
   const loadExperiment = (exp: Experiment) => {
     setPromptA(exp.promptA);
@@ -79,10 +108,13 @@ export default function Compare() {
     toast.success(`Loaded: ${exp.name}`);
   };
 
-  const deleteExperiment = (id: string) => {
-    const updated = experiments.filter((e) => e.id !== id);
-    setExperiments(updated);
-    saveExperiments(user?.id, updated);
+  const deleteExperiment = async (id: string) => {
+    const { error } = await supabase.from("experiments").delete().eq("id", id);
+    if (error) {
+      toast.error("Failed to delete experiment");
+      return;
+    }
+    setExperiments((prev) => prev.filter((e) => e.id !== id));
     toast.success("Experiment deleted");
   };
 

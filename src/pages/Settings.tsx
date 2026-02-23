@@ -5,6 +5,7 @@ import { usePrompts } from "@/hooks/usePrompts";
 import { useTheme } from "@/hooks/useTheme";
 import { getModelProfiles } from "@/services/placeholder/modelOptimizer";
 import { STRATEGY_META, PromptStrategy } from "@/utils/promptGenerator";
+import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import {
     User,
@@ -13,7 +14,7 @@ import {
     Info,
     Trash2,
     Download,
-    HardDrive,
+    Cloud,
     Moon,
     Sun,
     Keyboard,
@@ -22,19 +23,6 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 
 const STRATEGIES = Object.keys(STRATEGY_META) as PromptStrategy[];
-
-function getStorageUsage(): string {
-    let total = 0;
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key) {
-            total += key.length + (localStorage.getItem(key) || "").length;
-        }
-    }
-    if (total < 1024) return `${total} B`;
-    if (total < 1024 * 1024) return `${(total / 1024).toFixed(1)} KB`;
-    return `${(total / (1024 * 1024)).toFixed(2)} MB`;
-}
 
 const sectionVariants = {
     hidden: { opacity: 0, y: 12 },
@@ -71,30 +59,37 @@ export default function Settings() {
         toast.success(`Default model set to ${model?.name || id}`);
     };
 
-    const handleClearAll = () => {
-        if (!confirm("This will delete ALL your prompts and experiments. This cannot be undone. Continue?")) return;
-        const userId = user?.id;
-        const keys = [];
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && (key.includes("syntara_user_") || key.includes("syntara_prompts") || key.includes("syntara_experiments"))) {
-                keys.push(key);
-            }
+    const handleClearAll = async () => {
+        if (!confirm("This will delete ALL your prompts and experiments from the cloud. This cannot be undone. Continue?")) return;
+        if (!user?.id) return;
+        try {
+            await supabase.from("experiments").delete().eq("user_id", user.id);
+            await supabase.from("prompts").delete().eq("user_id", user.id);
+            toast.success("All data cleared from cloud");
+            window.location.reload();
+        } catch {
+            toast.error("Failed to clear data");
         }
-        keys.forEach((k) => localStorage.removeItem(k));
-        toast.success(`Cleared ${keys.length} storage entries`);
-        window.location.reload();
     };
 
-    const handleExportAll = () => {
-        const data: Record<string, unknown> = {};
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && key.startsWith("syntara_")) {
-                try { data[key] = JSON.parse(localStorage.getItem(key) || ""); } catch { data[key] = localStorage.getItem(key); }
-            }
-        }
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const handleExportAll = async () => {
+        if (!user?.id) return;
+        const { data: promptsData } = await supabase
+            .from("prompts")
+            .select("*, prompt_versions(*)")
+            .eq("user_id", user.id);
+        const { data: experimentsData } = await supabase
+            .from("experiments")
+            .select("*")
+            .eq("user_id", user.id);
+
+        const backup = {
+            exportedAt: new Date().toISOString(),
+            user: { name: user.name, email: user.email },
+            prompts: promptsData || [],
+            experiments: experimentsData || [],
+        };
+        const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -210,8 +205,8 @@ export default function Settings() {
                         </div>
                         <div className="surface-elevated rounded-lg p-3 text-center">
                             <p className="text-lg font-display font-bold text-primary">
-                                <HardDrive className="w-4 h-4 inline mr-1" />
-                                {getStorageUsage()}
+                                <Cloud className="w-4 h-4 inline mr-1" />
+                                Supabase
                             </p>
                             <p className="text-[10px] text-muted-foreground">Storage</p>
                         </div>
@@ -257,14 +252,14 @@ export default function Settings() {
                 <div className="space-y-2 text-sm">
                     <div className="flex items-center gap-3">
                         <span className="text-2xl font-display font-bold text-gradient-primary">Syntara</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-mono">v0.4.0</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-mono">v0.5.0</span>
                     </div>
                     <p className="text-muted-foreground text-xs leading-relaxed">
                         AI Prompt Engineering Workbench — craft, score, debug, and optimize prompts
                         with model-specific intelligence. Built with React, TypeScript, and Framer Motion.
                     </p>
                     <div className="text-xs text-muted-foreground pt-2 border-t border-border">
-                        <p>© {new Date().getFullYear()} Syntara • All data stored locally in your browser</p>
+                        <p>© {new Date().getFullYear()} Syntara • Data stored securely in Supabase</p>
                     </div>
                 </div>
             ),
