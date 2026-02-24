@@ -12,21 +12,55 @@ export const authService = {
         email: string,
         password: string
     ): Promise<AuthSession> {
+        const normalizedEmail = email.toLowerCase().trim();
+        const trimmedName = name.trim();
+
         const { data, error } = await supabase.auth.signUp({
-            email: email.toLowerCase().trim(),
+            email: normalizedEmail,
             password,
             options: {
-                data: { name: name.trim() },
+                data: { name: trimmedName },
             },
         });
 
         if (error) throw new Error(error.message);
         if (!data.user) throw new Error("Registration failed — no user returned");
 
+        // If Supabase returned a session the user is already confirmed & signed in
+        if (data.session) {
+            return {
+                userId: data.user.id,
+                email: data.user.email || normalizedEmail,
+                name: trimmedName,
+            };
+        }
+
+        // No session → email confirmation may be required.
+        // Attempt to sign in immediately (works when "Confirm email" is disabled
+        // in Supabase or the user was auto-confirmed).
+        const { data: signInData, error: signInError } =
+            await supabase.auth.signInWithPassword({
+                email: normalizedEmail,
+                password,
+            });
+
+        if (signInError) {
+            // If sign-in truly fails because confirmation IS required,
+            // surface a friendly message instead of the raw Supabase error.
+            if (signInError.message.toLowerCase().includes("email not confirmed")) {
+                throw new Error(
+                    "Account created! Please check your email to confirm your account, then sign in."
+                );
+            }
+            throw new Error(signInError.message);
+        }
+
+        if (!signInData.user) throw new Error("Registration succeeded but auto-login failed");
+
         return {
-            userId: data.user.id,
-            email: data.user.email || email,
-            name: name.trim(),
+            userId: signInData.user.id,
+            email: signInData.user.email || normalizedEmail,
+            name: trimmedName,
         };
     },
 
