@@ -55,6 +55,12 @@ export default function Index() {
     return () => window.removeEventListener("keydown", handler);
   });
 
+  const getErrorMsg = (err: unknown, fallbackLabel: string) => {
+    const status = (err as { status?: number }).status;
+    if (status === 429) return "Gemini rate limit reached — wait ~1 min and retry. Used local " + fallbackLabel;
+    return "AI unavailable — used local " + fallbackLabel;
+  };
+
   const handleGenerate = async () => {
     if (!input.trim()) { toast.error("Please enter a prompt idea first"); return; }
     setLoading(true);
@@ -69,11 +75,10 @@ export default function Index() {
         setOutput(generateOptimizedPrompt(input, strategy));
         setAiUsed(false);
       }
-    } catch {
-      // Fallback to local heuristic
+    } catch (err) {
       setOutput(generateOptimizedPrompt(input, strategy));
       setAiUsed(false);
-      toast.error("AI unavailable — used local generation");
+      toast.error(getErrorMsg(err, "generation"));
     } finally {
       setLoading(false);
     }
@@ -93,10 +98,10 @@ export default function Index() {
         setOutput(generateOptimizedPrompt(input, strategy));
         setAiUsed(false);
       }
-    } catch {
+    } catch (err) {
       setOutput(generateOptimizedPrompt(input, strategy));
       setAiUsed(false);
-      toast.error("AI unavailable — used local generation");
+      toast.error(getErrorMsg(err, "generation"));
     } finally {
       setLoading(false);
     }
@@ -112,9 +117,9 @@ export default function Index() {
       } else {
         setScore(scorePrompt(textToScore));
       }
-    } catch {
+    } catch (err) {
       setScore(scorePrompt(textToScore));
-      toast.error("AI scoring unavailable — used local scorer");
+      toast.error(getErrorMsg(err, "scorer"));
     } finally {
       setLoading(false);
     }
@@ -130,9 +135,9 @@ export default function Index() {
       } else {
         setDebugIssues(debugPrompt(textToDebug));
       }
-    } catch {
+    } catch (err) {
       setDebugIssues(debugPrompt(textToDebug));
-      toast.error("AI debug unavailable — used local debugger");
+      toast.error(getErrorMsg(err, "debugger"));
     } finally {
       setLoading(false);
     }

@@ -13,11 +13,40 @@ import type { OptimizationResult } from "@/services/placeholder/modelOptimizer";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
+const MAX_RETRIES = 4;
+const BASE_DELAY_MS = 3000;
+const FALLBACK_MODELS = ["gemini-2.0-flash", "gemini-2.0-flash-lite"];
+
 async function ask(prompt: string): Promise<string> {
-    const model = getModel();
-    if (!model) throw new Error("AI not available");
-    const result = await model.generateContent(prompt);
-    return result.response.text();
+    if (!isAIAvailable()) throw new Error("AI not available");
+
+    let lastError: unknown;
+
+    for (const modelName of FALLBACK_MODELS) {
+        const model = getModel(modelName);
+        if (!model) continue;
+
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                const result = await model.generateContent(prompt);
+                return result.response.text();
+            } catch (err: unknown) {
+                lastError = err;
+                const status = (err as { status?: number }).status;
+                // Retry on 429 (rate limit) or 503 (overloaded)
+                if ((status === 429 || status === 503) && attempt < MAX_RETRIES) {
+                    const delay = BASE_DELAY_MS * Math.pow(2, attempt); // 3s, 6s, 12s, 24s
+                    console.warn(`Gemini ${modelName} ${status} — retry ${attempt + 1}/${MAX_RETRIES} in ${delay / 1000}s`);
+                    await new Promise((r) => setTimeout(r, delay));
+                    continue;
+                }
+                // If rate limited on last retry, try next model
+                if (status === 429 || status === 503) break;
+                throw err;
+            }
+        }
+    }
+    throw lastError;
 }
 
 /** Parse JSON from an LLM response that may be wrapped in ```json fences. */
