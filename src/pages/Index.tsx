@@ -7,12 +7,14 @@ import ModelOptimizer from "@/components/ModelOptimizer";
 import { generateOptimizedPrompt, STRATEGY_META, PromptStrategy } from "@/utils/promptGenerator";
 import { scorePrompt } from "@/utils/promptScorer";
 import { debugPrompt } from "@/services/placeholder/promptDebugger";
+import { generatePromptAI, scorePromptAI, debugPromptAI, improvePromptAI } from "@/services/aiService";
+import { isAIAvailable } from "@/lib/gemini";
 import { usePrompts } from "@/hooks/usePrompts";
 import { PromptScore } from "@/types/prompt";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Sparkles, Copy, Save, Wand2, BarChart3, Brain, BookOpen, Terminal, Bug, Cpu } from "lucide-react";
+import { Sparkles, Copy, Save, Wand2, BarChart3, Brain, BookOpen, Terminal, Bug, Cpu, Loader2, Zap } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 
@@ -31,7 +33,10 @@ export default function Index() {
   const [strategy, setStrategy] = useState<PromptStrategy>("standard");
   const [debugIssues, setDebugIssues] = useState<ReturnType<typeof debugPrompt> | null>(null);
   const [showOptimizer, setShowOptimizer] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [aiUsed, setAiUsed] = useState(false);
   const { addPrompt } = usePrompts();
+  const aiOn = isAIAvailable();
 
   // Keyboard shortcut: Ctrl+Enter to generate/optimize
   useEffect(() => {
@@ -50,32 +55,87 @@ export default function Index() {
     return () => window.removeEventListener("keydown", handler);
   });
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!input.trim()) { toast.error("Please enter a prompt idea first"); return; }
-    const result = generateOptimizedPrompt(input, strategy);
-    setOutput(result);
+    setLoading(true);
     setScore(null);
     setDebugIssues(null);
+    try {
+      if (aiOn) {
+        const { prompt, usedAI } = await generatePromptAI(input, strategy);
+        setOutput(prompt);
+        setAiUsed(usedAI);
+      } else {
+        setOutput(generateOptimizedPrompt(input, strategy));
+        setAiUsed(false);
+      }
+    } catch {
+      // Fallback to local heuristic
+      setOutput(generateOptimizedPrompt(input, strategy));
+      setAiUsed(false);
+      toast.error("AI unavailable — used local generation");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleImprove = () => {
+  const handleImprove = async () => {
     if (!input.trim()) { toast.error("Please enter a prompt to improve"); return; }
-    const result = generateOptimizedPrompt(input, strategy);
-    setOutput(result);
+    setLoading(true);
     setScore(null);
     setDebugIssues(null);
+    try {
+      if (aiOn) {
+        const { improved, usedAI } = await improvePromptAI(input);
+        setOutput(improved);
+        setAiUsed(usedAI);
+      } else {
+        setOutput(generateOptimizedPrompt(input, strategy));
+        setAiUsed(false);
+      }
+    } catch {
+      setOutput(generateOptimizedPrompt(input, strategy));
+      setAiUsed(false);
+      toast.error("AI unavailable — used local generation");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleScore = () => {
+  const handleScore = async () => {
     const textToScore = output || input;
     if (!textToScore.trim()) { toast.error("Nothing to score yet"); return; }
-    setScore(scorePrompt(textToScore));
+    setLoading(true);
+    try {
+      if (aiOn) {
+        setScore(await scorePromptAI(textToScore));
+      } else {
+        setScore(scorePrompt(textToScore));
+      }
+    } catch {
+      setScore(scorePrompt(textToScore));
+      toast.error("AI scoring unavailable — used local scorer");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleDebug = () => {
+  const handleDebug = async () => {
     const textToDebug = output || input;
     if (!textToDebug.trim()) { toast.error("Nothing to debug yet"); return; }
-    setDebugIssues(debugPrompt(textToDebug));
+    setLoading(true);
+    try {
+      if (aiOn) {
+        setDebugIssues(await debugPromptAI(textToDebug));
+      } else {
+        setDebugIssues(debugPrompt(textToDebug));
+      }
+    } catch {
+      setDebugIssues(debugPrompt(textToDebug));
+      toast.error("AI debug unavailable — used local debugger");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCopy = () => {
@@ -148,8 +208,8 @@ export default function Index() {
                   onClick={() => setStrategy(s)}
                   whileTap={{ scale: 0.97 }}
                   className={`relative flex flex-col items-center gap-1.5 p-3 rounded-lg border text-xs font-medium transition-all ${active
-                      ? "border-primary/40 text-primary bg-primary/5"
-                      : "border-border text-muted-foreground hover:border-muted-foreground/30 hover:bg-muted/50"
+                    ? "border-primary/40 text-primary bg-primary/5"
+                    : "border-border text-muted-foreground hover:border-muted-foreground/30 hover:bg-muted/50"
                     }`}
                 >
                   {active && (
@@ -196,13 +256,24 @@ export default function Index() {
                 className="bg-background border-border resize-none font-mono text-sm"
               />
             )}
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
               <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <Button onClick={mode === "generate" ? handleGenerate : handleImprove} className="gap-2">
-                  {mode === "generate" ? <Sparkles className="w-4 h-4" /> : <Wand2 className="w-4 h-4" />}
-                  {mode === "generate" ? "Generate Prompt" : "Optimize"}
+                <Button onClick={mode === "generate" ? handleGenerate : handleImprove} className="gap-2" disabled={loading}>
+                  {loading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : mode === "generate" ? (
+                    <Sparkles className="w-4 h-4" />
+                  ) : (
+                    <Wand2 className="w-4 h-4" />
+                  )}
+                  {loading ? "Thinking..." : mode === "generate" ? "Generate Prompt" : "Optimize"}
                 </Button>
               </motion.div>
+              {aiOn && (
+                <span className="flex items-center gap-1 text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                  <Zap className="w-3 h-3" /> AI Powered
+                </span>
+              )}
             </div>
           </motion.div>
         </AnimatePresence>
@@ -219,9 +290,16 @@ export default function Index() {
               className="surface-elevated rounded-lg p-4 space-y-3"
             >
               <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Result
-                </label>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Result
+                  </label>
+                  {aiUsed && (
+                    <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-full">
+                      <Zap className="w-2.5 h-2.5" /> AI
+                    </span>
+                  )}
+                </div>
                 <div className="flex gap-1.5 flex-wrap">
                   <motion.div whileTap={{ scale: 0.9 }}>
                     <Button size="sm" variant="ghost" onClick={handleCopy} className="gap-1.5 h-7 text-xs">

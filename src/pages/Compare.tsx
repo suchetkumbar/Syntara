@@ -1,16 +1,18 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Layout from "@/components/Layout";
 import ScoreDisplay from "@/components/ScoreDisplay";
 import { scorePrompt } from "@/utils/promptScorer";
+import { scorePromptAI, comparePromptsAI, type CompareResult } from "@/services/aiService";
+import { isAIAvailable } from "@/lib/gemini";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { BarChart3, Trophy, Save, Trash2, Clock } from "lucide-react";
+import { BarChart3, Trophy, Save, Trash2, Clock, Loader2, Zap, Brain } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { Experiment } from "@/types/prompt";
+import { Experiment, PromptScore } from "@/types/prompt";
 
 const fadeSlideUp = {
   initial: { opacity: 0, y: 16 },
@@ -22,10 +24,14 @@ export default function Compare() {
   const { user } = useAuth();
   const [promptA, setPromptA] = useState("");
   const [promptB, setPromptB] = useState("");
-  const [scored, setScored] = useState(false);
+  const [scoreA, setScoreA] = useState<PromptScore | null>(null);
+  const [scoreB, setScoreB] = useState<PromptScore | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<CompareResult | null>(null);
+  const [loading, setLoading] = useState(false);
   const [experimentName, setExperimentName] = useState("");
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const aiOn = isAIAvailable();
 
   // Load experiments from Supabase
   useEffect(() => {
@@ -52,12 +58,47 @@ export default function Compare() {
       });
   }, [user?.id]);
 
-  const scoreA = useMemo(() => (scored && promptA ? scorePrompt(promptA) : null), [scored, promptA]);
-  const scoreB = useMemo(() => (scored && promptB ? scorePrompt(promptB) : null), [scored, promptB]);
-
   const winner = scoreA && scoreB
     ? scoreA.total > scoreB.total ? "A" : scoreB.total > scoreA.total ? "B" : "tie"
     : null;
+
+  const handleCompare = async () => {
+    if (!promptA.trim() || !promptB.trim()) return;
+    setLoading(true);
+    setAiAnalysis(null);
+    try {
+      if (aiOn) {
+        const [sA, sB] = await Promise.all([
+          scorePromptAI(promptA),
+          scorePromptAI(promptB),
+        ]);
+        setScoreA(sA);
+        setScoreB(sB);
+      } else {
+        setScoreA(scorePrompt(promptA));
+        setScoreB(scorePrompt(promptB));
+      }
+    } catch {
+      setScoreA(scorePrompt(promptA));
+      setScoreB(scorePrompt(promptB));
+      toast.error("AI scoring unavailable — used local scorer");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAICompare = async () => {
+    if (!promptA.trim() || !promptB.trim()) return;
+    setLoading(true);
+    try {
+      const result = await comparePromptsAI(promptA, promptB);
+      setAiAnalysis(result);
+    } catch {
+      toast.error("AI comparison failed");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSaveExperiment = useCallback(async () => {
     if (!promptA.trim() || !promptB.trim()) {
@@ -103,7 +144,9 @@ export default function Compare() {
   const loadExperiment = (exp: Experiment) => {
     setPromptA(exp.promptA);
     setPromptB(exp.promptB);
-    setScored(false);
+    setScoreA(null);
+    setScoreB(null);
+    setAiAnalysis(null);
     setShowHistory(false);
     toast.success(`Loaded: ${exp.name}`);
   };
@@ -200,7 +243,7 @@ export default function Compare() {
               </label>
               <Textarea
                 value={promptA}
-                onChange={(e) => { setPromptA(e.target.value); setScored(false); }}
+                onChange={(e) => { setPromptA(e.target.value); setScoreA(null); setScoreB(null); setAiAnalysis(null); }}
                 placeholder="Paste first prompt..."
                 rows={8}
                 className="bg-background border-border resize-none font-mono text-sm"
@@ -261,13 +304,26 @@ export default function Compare() {
         <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
           <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
             <Button
-              onClick={() => setScored(true)}
-              disabled={!promptA.trim() || !promptB.trim()}
+              onClick={handleCompare}
+              disabled={!promptA.trim() || !promptB.trim() || loading}
               className="gap-2"
             >
-              <BarChart3 className="w-4 h-4" /> Compare Scores
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}
+              {loading ? "Scoring..." : "Compare Scores"}
             </Button>
           </motion.div>
+          {aiOn && (
+            <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+              <Button
+                variant="outline"
+                onClick={handleAICompare}
+                disabled={!promptA.trim() || !promptB.trim() || loading}
+                className="gap-2"
+              >
+                <Brain className="w-4 h-4" /> AI Analysis
+              </Button>
+            </motion.div>
+          )}
           <div className="flex gap-2 items-center">
             <Input
               value={experimentName}
@@ -308,6 +364,52 @@ export default function Compare() {
                     ? `🏆 Prompt B wins by ${scoreB!.total - scoreA!.total} points`
                     : "⚡ It's a tie!"}
               </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* AI Analysis Panel */}
+        <AnimatePresence>
+          {aiAnalysis && (
+            <motion.div
+              key="ai-analysis"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ type: "spring", stiffness: 350, damping: 25 }}
+              className="mt-4 surface-elevated rounded-lg p-5 space-y-4"
+            >
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold">AI Analysis</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">{aiAnalysis.analysis}</p>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-primary uppercase">Prompt A Strengths</p>
+                  <ul className="space-y-1">
+                    {aiAnalysis.strengthsA.map((s, i) => (
+                      <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
+                        <span className="text-primary">✓</span> {s}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-accent uppercase">Prompt B Strengths</p>
+                  <ul className="space-y-1">
+                    {aiAnalysis.strengthsB.map((s, i) => (
+                      <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
+                        <span className="text-accent">✓</span> {s}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+              <div className="pt-2 border-t border-border">
+                <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Recommendation</p>
+                <p className="text-sm">{aiAnalysis.recommendation}</p>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
